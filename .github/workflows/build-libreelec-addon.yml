@@ -1,0 +1,64 @@
+name: Build game.libretro.mupen64plus-nx for LibreELEC 12.2 (Omega, ARM64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    env:
+      LIBREELEC_VERSION: "12.2"
+      LIBREELEC_BRANCH: "Omega"
+      LIBREELEC_ARCH: "aarch64"
+      ADDON_ID: "game.libretro.mupen64plus-nx"
+      ADDONS_REPO: "https://github.com/LibreELEC/game.libretro"
+
+    steps:
+      - name: Checkout workflow repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential cmake wget git xz-utils
+
+      - name: Download LibreELEC 12.2 SDK (ARM64)
+        run: |
+          SDK_URL="https://releases.libreelec.tv/LibreELEC-${LIBREELEC_VERSION}-${LIBREELEC_ARCH}_toolchain.tar.xz"
+          echo "Downloading SDK from $SDK_URL"
+          wget -q "$SDK_URL" -O toolchain.tar.xz
+          mkdir sdk && tar -xf toolchain.tar.xz -C sdk --strip-components=1
+
+      - name: Clone LibreELEC Game Addons (Omega branch)
+        run: |
+          git clone --branch ${LIBREELEC_BRANCH} --depth=1 ${ADDONS_REPO} addons
+          cd addons
+          if [ ! -d "${ADDON_ID}" ]; then
+            echo "Error: Add-on ${ADDON_ID} not found in ${LIBREELEC_BRANCH} branch."
+            exit 1
+          fi
+
+      - name: Build ${ADDON_ID}
+        run: |
+          source sdk/envsetup
+          mkdir -p build && cd build
+
+          cmake -DADDONS_TO_BUILD=${ADDON_ID} \
+                -DADDON_SRC_PREFIX=../addons \
+                ../sdk
+
+          make -j$(nproc)
+
+      - name: Collect build artifacts
+        if: success()
+        run: |
+          mkdir -p artifacts
+          find build -name "${ADDON_ID}*.zip" -exec cp {} artifacts/ \; || echo "No zip found"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ADDON_ID }}-${{ env.LIBREELEC_VERSION }}-${{ env.LIBREELEC_ARCH }}
+          path: artifacts/
+
